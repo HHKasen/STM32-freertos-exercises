@@ -43,7 +43,7 @@
 #define SD_CS_BANK GPIOB
 #define SD_CS_LOW()   HAL_GPIO_WritePin	(SD_CS_BANK,SD_CS_PIN,GPIO_PIN_RESET)
 #define SD_CS_HIGH()  HAL_GPIO_WritePin	(SD_CS_BANK,SD_CS_PIN,GPIO_PIN_SET)
-#define N_CS 8
+#define N_CS 100
 //CMD DEFS
 typedef enum {
 	GO_IDLE_STATE = 0,
@@ -197,26 +197,36 @@ HAL_StatusTypeDef send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 
     spi_tx[5] = (getCRC(spi_tx,5)<<1)  + 1;
 
+	sprintf(MSG, "cmd:%u\n",spi_tx[0]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	sprintf(MSG, "arg1:%u\n",spi_tx[1]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	sprintf(MSG, "arg2:%u\n",spi_tx[2]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	sprintf(MSG, "arg3:%u\n",spi_tx[3]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	sprintf(MSG, "arg4:%u\n",spi_tx[4]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 	sprintf(MSG, "crc:%u\n",spi_tx[5]);
 	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 
 //    spi_tx[5] = 0x01; // (crc[7:1],0) - for now, zero
 
-	status = HAL_SPI_Transmit(&hspi2, &spi_tx , 8, 0);
+	status = HAL_SPI_Transmit(&hspi2, &spi_tx , 6, 0);
 
 	int count = 0;
-	uint8_t spi_rx = 0;
+	uint8_t spi_rx = 0xFF;
 	uint8_t tx_high = 0xFF;
 	uint8_t rec_res = 0;
 
 	while( count<N_CS && !rec_res  ){
-		status = HAL_SPI_TransmitReceive(&hspi2, &spi_rx, &tx_high , 1, 0);
+		status = HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx , 1, 0);
 		if( (spi_rx&0x80) == 0){
 			rec_res = 1;
 		}
 		sprintf(MSG, "resp:%u\n",spi_rx);
 		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-		sprintf(MSG, "rec:%u\n",rec_res);
+		sprintf(MSG, "tx:%u\n",tx_high);
 		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 
 		count++;
@@ -228,10 +238,10 @@ HAL_StatusTypeDef send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 
 	if( (cmd == SEND_IF_COND) || cmd == READ_OCR){ // R7 response
 		uint8_t rx_buff[4] = {0};
-		status = HAL_SPI_TransmitReceive(&hspi2, rx_buff, &tx_high , 1, 0);
-		status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+4, &tx_high , 1, 0);
-		status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+8, &tx_high , 1, 0);
-		status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+12, &tx_high , 1, 0);
+		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff, &tx_high , 1, 0);
+		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+4, &tx_high , 1, 0);
+		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+8, &tx_high , 1, 0);
+		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+12, &tx_high , 1, 0);
 
 		sprintf(MSG, "trail:%u\n",rx_buff[0]);
 		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
@@ -301,14 +311,81 @@ int main(void)
   //
   //init sequence - send 72 clock pulses (send extra here)
   //
+  SD_CS_HIGH();
   HAL_Delay(50); //delay at least 1 ms
 
-  for(int ii = 0; ii<10; ii++){
+  //only need 72, do a bunch more
+  for(int ii = 0; ii<20; ii++){
     HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
   }
 
-  send_SD_cmd(GO_IDLE_STATE,0);
-  send_SD_cmd(SEND_IF_COND,0x1AA);
+	SD_CS_LOW();
+	uint8_t spi_tx_bf[6] = {0};
+
+	spi_tx_bf[0] = (0x40)| 0x00;
+	spi_tx_bf[1] =  0x00000000 & 0x000000FF;
+	spi_tx_bf[2] = (0x00000000 & 0x0000FF00) >> 8;
+	spi_tx_bf[3] = (0x00000000 & 0x00FF0000) >> 16;
+	spi_tx_bf[4] = (0x00000000 & 0xFF000000) >> 24;
+//	spi_tx_bf[5] = (getCRC(spi_tx,5)<<1)  + 1;
+	spi_tx_bf[5] = 0x95;
+
+	/*
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf , 1, 0);
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf+1 , 1, 0);
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf+2 , 1, 0);
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf+3 , 1, 0);
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf+4 , 1, 0);
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf+5 , 1, 0);
+	 */
+
+    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[0] , 1, 50);
+    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[1] , 1, 50);
+    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[2] , 1, 50);
+    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[3] , 1, 50);
+    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[4] , 1, 50);
+    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[5] , 1, 50);
+
+	sprintf(MSG, "Byte1:%u\n",*spi_tx_bf);
+//	sprintf(MSG, "Byte1:%u\n",&(spi_tx_bf[0]));
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	sprintf(MSG, "Byte2:%u\n",(spi_tx_bf[1]));
+	//sprintf(MSG, "Byte1:%u\n",&(spi_tx_bf[1]));
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	//sprintf(MSG, "Byte3:%u\n",(spi_tx_bf+2));
+	sprintf(MSG, "Byte3:%u\n",spi_tx_bf[2]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	//sprintf(MSG, "Byte4:%u\n",*(spi_tx_bf+3));
+	sprintf(MSG, "Byte4:%u\n",spi_tx_bf[3]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	//sprintf(MSG, "Bye5:%u\n",*(spi_tx_bf+4));
+	sprintf(MSG, "Byte5:%u\n",spi_tx_bf[4]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	//sprintf(MSG, "Byte6:%u\n",*(spi_tx_bf+5));
+	sprintf(MSG, "Byte6:%u\n",spi_tx_bf[5]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
+	int count = 0;
+	//uint8_t spi_rx = 0xFF;
+	uint8_t tx_high = 0xFF;
+	uint8_t rec_res = 0;
+
+	while( count<N_CS && !rec_res  ){
+		HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx , 1, 50);
+		if( (spi_rx&0x80) == 0){
+			rec_res = 1;
+		}
+		sprintf(MSG, "resp:%u\n",spi_rx);
+		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+		sprintf(MSG, "tx:%u\n",tx_high);
+		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
+		count++;
+	}
+
+  SD_CS_HIGH();
+ // send_SD_cmd(GO_IDLE_STATE,0);
+  //send_SD_cmd(SEND_IF_COND,0x1AA);
 
   //
   //
@@ -317,21 +394,20 @@ int main(void)
 
   /* USER CODE END 2 */
 
-
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
   uint8_t parity = 0;
+  spi_tx = 0xFF;
   while (1)
   {
-//	  HAL_SPI_TransmitReceive(&hspi2, &spi_tx , &spi_rx, 1, 0);
-//	  sprintf(MSG, "Received:%u\n",spi_rx);
+	  HAL_SPI_TransmitReceive(&hspi2, &spi_tx , &spi_rx, 1, 0);
+	  sprintf(MSG, "Received:%u\n",spi_rx);
 
 	  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 	  //HAL_GPIO_TogglePin(GPIOB, SD_CS);
 
-	  HAL_Delay(20000);
+	  HAL_Delay(5000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -407,7 +483,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
