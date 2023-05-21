@@ -43,25 +43,31 @@
 #define SD_CS_BANK GPIOB
 #define SD_CS_LOW()   HAL_GPIO_WritePin	(SD_CS_BANK,SD_CS_PIN,GPIO_PIN_RESET)
 #define SD_CS_HIGH()  HAL_GPIO_WritePin	(SD_CS_BANK,SD_CS_PIN,GPIO_PIN_SET)
-#define N_CS 100
+#define N_CS 8
 //CMD DEFS
+
+
 typedef enum {
-	GO_IDLE_STATE = 0,
-	SEND_OP_CMD = 1,
-	APP_SEND_OP_CODE = 41, //SDC only - app cmd
-	SEND_IF_COND = 8,
-	SEND_CSD = 9,
-	SEND_CID= 10,
-	STOP_TRANSMISSION = 12,
-	SET_BLOCKLEN = 16,
-	READ_SINGLE_BLOCK = 17,
-	READ_MULTIPLE_BLOCKS = 18,
-	SET_BLOCK_COUNT = 23, //if appcmd first, becomes SET_WE_BLOCK_ERASE_CNT
-	WRITE_BLOCK=24,
-	WRITE_MULTIPLE_BLOCK=25,
-	APP_CMD = 55, // must precede any app cmd
-	READ_OCR = 58
+	CMD0 = 0, //GO_IDLE_STATE
+	CMD1 = 1,//SEND_OP_CMD
+	ACMD42 = 41, //APP_SEND_OP_CODE - SDC only - app cmd
+	CMD8 = 8, //SEND_IF_COND
+	CMD9 = 9, //SEND_CSD
+	CMD10= 10, //SEND_CID
+	CMD12 = 12, //STOP_TRANSMISSION
+	CMD16 = 16, //SET_BLOCKLEN
+	CMD17 = 17, //READ_SINGLE_BLOCK
+	CMD18 = 18, //READ_MULTIPLE_BLOCKS
+	CMD23 = 23, // SET_BLOCK_COUNT if appcmd first, becomes SET_WE_BLOCK_ERASE_CNT
+	ACMD23 = 23|0x40, //SET_WE_BLOCK_ERASE_CNT - really 23, names like this to prevent conflict
+	CMD24 = 24, //WRITE_BLOCK
+	CMD25 = 25, //WRITE_MULTIPLE_BLOCK
+	CMD55 = 55, //APP_CMD must precede any app cmd
+	CMD58 = 58 //READ_OCR
 }SD_cmd_t;
+
+
+
 
 
 /* USER CODE END PD */
@@ -93,176 +99,90 @@ static void MX_SPI2_Init(void);
 /* USER CODE BEGIN 0 */
 
 uint8_t CRCTable[256];
-
-void GenerateCRCTable()
-{
-  int i, j;
-  uint8_t CRCPoly = 0x89;  // the value of our CRC-7 polynomial
-
-  // generate a table value for all 256 possible byte values
-  for (i = 0; i < 256; ++i) {
-    CRCTable[i] = (i & 0x80) ? i ^ CRCPoly : i;
-    for (j = 1; j < 8; ++j) {
-        CRCTable[i] <<= 1;
-        if (CRCTable[i] & 0x80){
-            CRCTable[i] ^= CRCPoly;
-        }
-    }
-  }
-}
-
-/*
-// adds a message byte to the current CRC-7 to get a the new CRC-7
-uint8_t CRCAdd(uint8_t CRC, uint8_t message_byte)
-{
-	return 0;
- //   return CRCTable[(CRC << 1) ^ message_byte];
-}*/
-uint8_t CRCAdd(uint8_t CRC_val , uint8_t message_byte){
-	 return CRCTable[(CRC_val << 1) ^ message_byte];
-}
-
-
-// returns the CRC-7 for a message of "length" bytes
-uint8_t getCRC(uint8_t message[], int length)
-{
-
-  int i;
-  uint8_t CRC_val = 0;
-
-  for (i = 0; i < length; ++i){
-	  CRC_val = CRCAdd(CRC_val, message[i]);
-  }
-
-  return CRC_val;
-
-}
+void GenerateCRCTable();
+uint8_t CRCAdd(uint8_t CRC_val , uint8_t message_byte);
+uint8_t getCRC(uint8_t message[], int length);
 
 
 
 //Really should be error type
 //Should also take read buffer? write buffer?
-HAL_StatusTypeDef send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
+uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
+
+	//should assert that resp!=NULL
+
 	uint8_t MSG[35] = {'\0'};
-
-	switch(cmd){
-		case GO_IDLE_STATE: ;
-			sprintf(MSG, "GO_IDLE\n");
-			HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-			break;
-		case SEND_OP_CMD:
-			break;
-		case APP_SEND_OP_CODE:
-			break;
-		case SEND_IF_COND:
-			sprintf(MSG, "SEND_IF_COND\n");
-			HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
-			break;
-		case SEND_CSD:
-			break;
-		case SEND_CID:
-			break;
-		case STOP_TRANSMISSION:
-			break;
-		case SET_BLOCKLEN:
-			break;
-		case READ_SINGLE_BLOCK:
-			break;
-		case READ_MULTIPLE_BLOCKS:
-			break;
-		case SET_BLOCK_COUNT:
-			break;
-		case WRITE_BLOCK:
-			break;
-		case WRITE_MULTIPLE_BLOCK:
-			break;
-		case APP_CMD:
-			break;
-		case READ_OCR:
-			break;
-		default:
-			break;
-	}
-	HAL_StatusTypeDef status;
-
-	SD_CS_LOW();
-	uint8_t spi_tx[6] = {0};
-
-	spi_tx[0] = (0x40)| cmd;
-	spi_tx[1] =  cmd_arg & 0x000000FF;
-    spi_tx[2] = (cmd_arg & 0x0000FF00) >> 8;
-    spi_tx[3] = (cmd_arg & 0x00FF0000) >> 16;
-    spi_tx[4] = (cmd_arg & 0xFF000000) >> 24;
-
-    spi_tx[5] = (getCRC(spi_tx,5)<<1)  + 1;
-
-	sprintf(MSG, "cmd:%u\n",spi_tx[0]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	sprintf(MSG, "arg1:%u\n",spi_tx[1]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	sprintf(MSG, "arg2:%u\n",spi_tx[2]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	sprintf(MSG, "arg3:%u\n",spi_tx[3]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	sprintf(MSG, "arg4:%u\n",spi_tx[4]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	sprintf(MSG, "crc:%u\n",spi_tx[5]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
-//    spi_tx[5] = 0x01; // (crc[7:1],0) - for now, zero
-
-	status = HAL_SPI_Transmit(&hspi2, &spi_tx , 6, 0);
-
-	int count = 0;
 	uint8_t spi_rx = 0xFF;
 	uint8_t tx_high = 0xFF;
 	uint8_t rec_res = 0;
+	sprintf(MSG, "cmd:%u\n",cmd);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
+	HAL_StatusTypeDef status;
+	//HAL_SPI_Transmit(&hspi2, &tx_high , 1, 0);
+
+	//SD_CS_LOW();
+	//HAL_SPI_Transmit(&hspi2, &tx_high , 1, 0);
+
+
+	uint8_t spi_tx_bf[6] = {0};
+
+	spi_tx_bf[0] = (0x40)| cmd;
+
+	spi_tx_bf[4] =  cmd_arg & 0x000000FF;
+	spi_tx_bf[3] = (cmd_arg & 0x0000FF00) >> 8;
+	spi_tx_bf[2] = (cmd_arg & 0x00FF0000) >> 16;
+	spi_tx_bf[1] = (cmd_arg & 0xFF000000) >> 24;
+
+	spi_tx_bf[5] = (getCRC(spi_tx_bf,5)<<1)  + 1;
+
+	sprintf(MSG, "cmd:%u %u %u %u %u %u\n",spi_tx_bf[0],spi_tx_bf[1],spi_tx_bf[2],spi_tx_bf[3],spi_tx_bf[4],spi_tx_bf[5]);
+	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	memset(MSG,'\0',35);
+
+    HAL_SPI_Transmit(&hspi2, spi_tx_bf , 6, 50);
+
+	int count = 0;
+
 
 	while( count<N_CS && !rec_res  ){
-		status = HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx , 1, 0);
+		HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx , 1, 50);
 		if( (spi_rx&0x80) == 0){
 			rec_res = 1;
 		}
 		sprintf(MSG, "resp:%u\n",spi_rx);
 		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-		sprintf(MSG, "tx:%u\n",tx_high);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+//		sprintf(MSG, "tx:%u\n",tx_high);
+//		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 
 		count++;
 	}
-
-	if(cmd == STOP_TRANSMISSION ){ //R1b response
-
-	}
-
-	if( (cmd == SEND_IF_COND) || cmd == READ_OCR){ // R7 response
-		uint8_t rx_buff[4] = {0};
-		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff, &tx_high , 1, 0);
-		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+4, &tx_high , 1, 0);
-		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+8, &tx_high , 1, 0);
-		//status = HAL_SPI_TransmitReceive(&hspi2, rx_buff+12, &tx_high , 1, 0);
-
-		sprintf(MSG, "trail:%u\n",rx_buff[0]);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-		sprintf(MSG, "trail:%u\n",rx_buff[1]);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-		sprintf(MSG, "trail:%u\n",rx_buff[2]);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-		sprintf(MSG, "trail:%u\n",rx_buff[3]);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
-	}
-
-
-
-
-
-	SD_CS_HIGH();
-
-
-	return status;
+	return spi_rx;
 }
+
+void get_OCR(uint8_t* ocr){
+		uint8_t MSG[35] = {'\0'};
+
+	    uint8_t tx_high = 0xFF;
+		uint8_t rx_buff[4] = {0};
+		HAL_SPI_TransmitReceive(&hspi2, &tx_high, ocr, 1, 50);
+		HAL_SPI_TransmitReceive(&hspi2, &tx_high, ocr+1, 1, 50);
+		HAL_SPI_TransmitReceive(&hspi2, &tx_high, ocr+2, 1, 50);
+		HAL_SPI_TransmitReceive(&hspi2, &tx_high, ocr+3, 1, 50);
+
+
+		sprintf(MSG, "trail:%u %u %u %u\n",ocr[0],ocr[1],ocr[2],ocr[3]);
+		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
+}
+
+
+	//spare cpi cycles
+	//HAL_SPI_Transmit(&hspi2, &tx_high , 1, 0);
+
+	//SD_CS_HIGH();
+	//HAL_SPI_Transmit(&hspi2, &tx_high , 1, 0);
+
 
 
 /* USER CODE END 0 */
@@ -302,89 +222,65 @@ int main(void)
 
   GenerateCRCTable();
   uint8_t MSG[35] = {'\0'};
-  sprintf(MSG, "Standby\n");
+  sprintf(MSG, "\n-------------\n");
+  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+  sprintf(MSG, "-------------\n");
 
   HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+  sprintf(MSG, "  Starting...\n");
+  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
+  sprintf(MSG, "-------------\n");
+  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+  sprintf(MSG, "          \n\n\n");
+
+  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+  memset(MSG,'0',35);
+
+
   uint8_t spi_tx = 0xFF;
   uint8_t spi_rx = 0x00;
 
-  //
-  //init sequence - send 72 clock pulses (send extra here)
-  //
-  SD_CS_HIGH();
-  HAL_Delay(50); //delay at least 1 ms
 
-  //only need 72, do a bunch more
-  for(int ii = 0; ii<20; ii++){
-    HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
-  }
+    //init seq
+	SD_CS_HIGH();
+	HAL_Delay(50); //delay at least 1 ms
 
-	SD_CS_LOW();
-	uint8_t spi_tx_bf[6] = {0};
-
-	spi_tx_bf[0] = (0x40)| 0x00;
-	spi_tx_bf[1] =  0x00000000 & 0x000000FF;
-	spi_tx_bf[2] = (0x00000000 & 0x0000FF00) >> 8;
-	spi_tx_bf[3] = (0x00000000 & 0x00FF0000) >> 16;
-	spi_tx_bf[4] = (0x00000000 & 0xFF000000) >> 24;
-//	spi_tx_bf[5] = (getCRC(spi_tx,5)<<1)  + 1;
-	spi_tx_bf[5] = 0x95;
-
-	/*
-    HAL_SPI_Transmit(&hspi2, spi_tx_bf , 1, 0);
-    HAL_SPI_Transmit(&hspi2, spi_tx_bf+1 , 1, 0);
-    HAL_SPI_Transmit(&hspi2, spi_tx_bf+2 , 1, 0);
-    HAL_SPI_Transmit(&hspi2, spi_tx_bf+3 , 1, 0);
-    HAL_SPI_Transmit(&hspi2, spi_tx_bf+4 , 1, 0);
-    HAL_SPI_Transmit(&hspi2, spi_tx_bf+5 , 1, 0);
-	 */
-
-    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[0] , 1, 50);
-    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[1] , 1, 50);
-    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[2] , 1, 50);
-    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[3] , 1, 50);
-    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[4] , 1, 50);
-    HAL_SPI_Transmit(&hspi2, &spi_tx_bf[5] , 1, 50);
-
-	sprintf(MSG, "Byte1:%u\n",*spi_tx_bf);
-//	sprintf(MSG, "Byte1:%u\n",&(spi_tx_bf[0]));
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	sprintf(MSG, "Byte2:%u\n",(spi_tx_bf[1]));
-	//sprintf(MSG, "Byte1:%u\n",&(spi_tx_bf[1]));
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	//sprintf(MSG, "Byte3:%u\n",(spi_tx_bf+2));
-	sprintf(MSG, "Byte3:%u\n",spi_tx_bf[2]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	//sprintf(MSG, "Byte4:%u\n",*(spi_tx_bf+3));
-	sprintf(MSG, "Byte4:%u\n",spi_tx_bf[3]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	//sprintf(MSG, "Bye5:%u\n",*(spi_tx_bf+4));
-	sprintf(MSG, "Byte5:%u\n",spi_tx_bf[4]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	//sprintf(MSG, "Byte6:%u\n",*(spi_tx_bf+5));
-	sprintf(MSG, "Byte6:%u\n",spi_tx_bf[5]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
-	int count = 0;
-	//uint8_t spi_rx = 0xFF;
-	uint8_t tx_high = 0xFF;
-	uint8_t rec_res = 0;
-
-	while( count<N_CS && !rec_res  ){
-		HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx , 1, 50);
-		if( (spi_rx&0x80) == 0){
-			rec_res = 1;
-		}
-		sprintf(MSG, "resp:%u\n",spi_rx);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-		sprintf(MSG, "tx:%u\n",tx_high);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
-		count++;
+	  //only need 72, do a bunch more
+	for(int ii = 0; ii<10; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
 	}
 
-  SD_CS_HIGH();
- // send_SD_cmd(GO_IDLE_STATE,0);
+	uint8_t R1_resp = 0;
+	uint8_t ocr[4] = {0};
+
+	SD_CS_LOW();
+	R1_resp = send_SD_cmd(CMD0,0);
+
+	SD_valid = 0;
+
+	if(R1_resp  = 0x01){
+		R1_resp = send_SD_cmd(CMD8,0x01AA);
+	    get_OCR(ocr);
+
+	    if(){
+
+	    }
+	    else if(  ){
+
+	    }
+
+	}
+
+
+	SD_CS_HIGH();
+
+//	sprintf(MSG, "resp:%u\n",cmd_resp[0]);
+//	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
+
+
   //send_SD_cmd(SEND_IF_COND,0x1AA);
 
   //
@@ -401,10 +297,11 @@ int main(void)
   spi_tx = 0xFF;
   while (1)
   {
-	  HAL_SPI_TransmitReceive(&hspi2, &spi_tx , &spi_rx, 1, 0);
-	  sprintf(MSG, "Received:%u\n",spi_rx);
+//	  HAL_SPI_TransmitReceive(&hspi2, &spi_tx , &spi_rx, 1, 0);
+//	  sprintf(MSG, "Received:%u\n",spi_rx);
+//	  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 
-	  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+
 	  //HAL_GPIO_TogglePin(GPIOB, SD_CS);
 
 	  HAL_Delay(5000);
@@ -565,6 +462,51 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void GenerateCRCTable()
+{
+  int i, j;
+  uint8_t CRCPoly = 0x89;  // the value of our CRC-7 polynomial
+
+  // generate a table value for all 256 possible byte values
+  for (i = 0; i < 256; ++i) {
+    CRCTable[i] = (i & 0x80) ? i ^ CRCPoly : i;
+    for (j = 1; j < 8; ++j) {
+        CRCTable[i] <<= 1;
+        if (CRCTable[i] & 0x80){
+            CRCTable[i] ^= CRCPoly;
+        }
+    }
+  }
+}
+
+/*
+// adds a message byte to the current CRC-7 to get a the new CRC-7
+uint8_t CRCAdd(uint8_t CRC, uint8_t message_byte)
+{
+	return 0;
+ //   return CRCTable[(CRC << 1) ^ message_byte];
+}*/
+uint8_t CRCAdd(uint8_t CRC_val , uint8_t message_byte){
+	 return CRCTable[(CRC_val << 1) ^ message_byte];
+}
+
+
+// returns the CRC-7 for a message of "length" bytes
+uint8_t getCRC(uint8_t message[], int length)
+{
+
+  int i;
+  uint8_t CRC_val = 0;
+
+  for (i = 0; i < length; ++i){
+	  CRC_val = CRCAdd(CRC_val, message[i]);
+  }
+
+  return CRC_val;
+
+}
+
 
 /* USER CODE END 4 */
 
