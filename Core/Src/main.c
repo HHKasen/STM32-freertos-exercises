@@ -17,6 +17,7 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
+#include "stdarg.h"
 #include "main.h"
 #include "fatfs.h"
 
@@ -50,7 +51,7 @@
 typedef enum {
 	CMD0 = 0, //GO_IDLE_STATE
 	CMD1 = 1,//SEND_OP_CMD
-	ACMD42 = 41, //APP_SEND_OP_CODE - SDC only - app cmd
+	ACMD41 = 41, //APP_SEND_OP_CODE - SDC only - app cmd
 	CMD8 = 8, //SEND_IF_COND
 	CMD9 = 9, //SEND_CSD
 	CMD10= 10, //SEND_CID
@@ -92,11 +93,13 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
-
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
 
 uint8_t CRCTable[256];
 void GenerateCRCTable();
@@ -110,21 +113,18 @@ uint8_t getCRC(uint8_t message[], int length);
 uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 
 	//should assert that resp!=NULL
+	if( (cmd==ACMD41)||(cmd==ACMD23)){
+		send_SD_cmd(CMD55,0);
+	}
+
 
 	uint8_t MSG[35] = {'\0'};
 	uint8_t spi_rx = 0xFF;
 	uint8_t tx_high = 0xFF;
 	uint8_t rec_res = 0;
-	sprintf(MSG, "cmd:%u\n",cmd);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+	printf("cmd:%u\n",cmd);
 
 	HAL_StatusTypeDef status;
-	//HAL_SPI_Transmit(&hspi2, &tx_high , 1, 0);
-
-	//SD_CS_LOW();
-	//HAL_SPI_Transmit(&hspi2, &tx_high , 1, 0);
-
-
 	uint8_t spi_tx_bf[6] = {0};
 
 	spi_tx_bf[0] = (0x40)| cmd;
@@ -136,9 +136,7 @@ uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 
 	spi_tx_bf[5] = (getCRC(spi_tx_bf,5)<<1)  + 1;
 
-	sprintf(MSG, "cmd:%u %u %u %u %u %u\n",spi_tx_bf[0],spi_tx_bf[1],spi_tx_bf[2],spi_tx_bf[3],spi_tx_bf[4],spi_tx_bf[5]);
-	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-	memset(MSG,'\0',35);
+	printf(MSG, "cmd:%u %u %u %u %u %u\n",spi_tx_bf[0],spi_tx_bf[1],spi_tx_bf[2],spi_tx_bf[3],spi_tx_bf[4],spi_tx_bf[5]);
 
     HAL_SPI_Transmit(&hspi2, spi_tx_bf , 6, 50);
 
@@ -150,10 +148,7 @@ uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 		if( (spi_rx&0x80) == 0){
 			rec_res = 1;
 		}
-		sprintf(MSG, "resp:%u\n",spi_rx);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-//		sprintf(MSG, "tx:%u\n",tx_high);
-//		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+		printf("resp:%u\n",spi_rx);
 
 		count++;
 	}
@@ -161,8 +156,6 @@ uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 }
 
 void get_OCR(uint8_t* ocr){
-		uint8_t MSG[35] = {'\0'};
-
 	    uint8_t tx_high = 0xFF;
 		uint8_t rx_buff[4] = {0};
 		HAL_SPI_TransmitReceive(&hspi2, &tx_high, ocr, 1, 50);
@@ -171,9 +164,9 @@ void get_OCR(uint8_t* ocr){
 		HAL_SPI_TransmitReceive(&hspi2, &tx_high, ocr+3, 1, 50);
 
 
-		sprintf(MSG, "trail:%u %u %u %u\n",ocr[0],ocr[1],ocr[2],ocr[3]);
-		HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
+		//sprintf(MSG, "trail:%u %u %u %u\n",ocr[0],ocr[1],ocr[2],ocr[3]);
+		//HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
+		printf("trail:%u %u %u %u\n",ocr[0],ocr[1],ocr[2],ocr[3]);
 }
 
 
@@ -221,23 +214,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   GenerateCRCTable();
-  uint8_t MSG[35] = {'\0'};
-  sprintf(MSG, "\n-------------\n");
-  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-  sprintf(MSG, "-------------\n");
 
-  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-  sprintf(MSG, "  Starting...\n");
-  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-
-  sprintf(MSG, "-------------\n");
-  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-  sprintf(MSG, "          \n\n\n");
-
-  HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
-  memset(MSG,'0',35);
-
+  printf("\n-------------\n-------------\n  Starting...\n-------------\n\n-------------\n\n\n");
 
   uint8_t spi_tx = 0xFF;
   uint8_t spi_rx = 0x00;
@@ -258,19 +236,36 @@ int main(void)
 	SD_CS_LOW();
 	R1_resp = send_SD_cmd(CMD0,0);
 
-	SD_valid = 0;
+	uint8_t SD_valid = 0;
 
-	if(R1_resp  = 0x01){
+	if(R1_resp == 0x01){
 		R1_resp = send_SD_cmd(CMD8,0x01AA);
 	    get_OCR(ocr);
 
-	    if(){
+	    if( (R1_resp!=0x01)){ //if error or no response, SD1 or MMC
+	    	printf("SD 1.0 or MMC\n");
 
 	    }
-	    else if(  ){
+	    else if( (ocr[2] == 0x01)&&(ocr[3] == 0xAA)  ){ //SD v2
+	    	printf("SD 2.0+\n");
+
+	    	for(int ii=0; ii<100; ii++){
+	    		R1_resp = send_SD_cmd(ACMD41,0x40000000);
+
+	    		if(R1_resp==0x00){
+	    			break;
+	    		}
+	    	}
+	    	printf("exited in this state:%u\n",R1_resp);
+	    }
+	    else{
+			printf("error, CMD8 response:%u\n",R1_resp);
 
 	    }
-
+	    //else,  simply error
+	}
+	else{
+		printf("error, CMD0 response:%u\n",R1_resp);
 	}
 
 
@@ -462,6 +457,15 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+PUTCHAR_PROTOTYPE
+{
+  /* Place your implementation of fputc here */
+  /* e.g. write a character to the USART1 and Loop until the end of transmission */
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
+
+  return ch;
+}
 
 void GenerateCRCTable()
 {
