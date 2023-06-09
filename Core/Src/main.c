@@ -105,7 +105,7 @@ uint8_t CRCTable[256];
 void GenerateCRCTable();
 uint8_t CRCAdd(uint8_t CRC_val , uint8_t message_byte);
 uint8_t getCRC(uint8_t message[], int length);
-
+uint8_t fixedPointLog2(uint8_t val);
 
 
 //Really should be error type
@@ -113,16 +113,23 @@ uint8_t getCRC(uint8_t message[], int length);
 uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 
 	//should assert that resp!=NULL
-	if( (cmd==ACMD41)||(cmd==ACMD23)){
-		send_SD_cmd(CMD55,0);
-	}
+	/*if( (cmd==ACMD41)||(cmd==ACMD23)){
+		uint8_t acmd_resp = send_SD_cmd(CMD55,0);
+		if(acmd_resp == 0xFF){
+			return 0xFF;
+		}
+	}*/
 
+
+	uint8_t tx_high = 0xFF;
 
 	uint8_t MSG[35] = {'\0'};
 	uint8_t spi_rx = 0xFF;
-	uint8_t tx_high = 0xFF;
 	uint8_t rec_res = 0;
 	printf("cmd:%u\n",cmd);
+    HAL_SPI_Transmit(&hspi2, &tx_high , 1, 50);
+    HAL_SPI_Transmit(&hspi2, &tx_high , 1, 50);
+
 
 	HAL_StatusTypeDef status;
 	uint8_t spi_tx_bf[6] = {0};
@@ -152,6 +159,21 @@ uint8_t send_SD_cmd(SD_cmd_t cmd, uint32_t cmd_arg){
 
 		count++;
 	}
+	//will this work?
+
+
+	if(cmd!=CMD58 && cmd!=CMD8 && spi_rx!=0xFF){
+		uint8_t spi_rx_clear = 0x0;
+
+		for(int ii=0; ii<8; ii++){
+			HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx_clear , 1, 50);
+			printf("clr return:%u\n",spi_rx_clear);
+			if(spi_rx_clear==0xFF){
+				break;
+			}
+		}
+	}
+
 	return spi_rx;
 }
 
@@ -167,6 +189,10 @@ void get_OCR(uint8_t* ocr){
 		//sprintf(MSG, "trail:%u %u %u %u\n",ocr[0],ocr[1],ocr[2],ocr[3]);
 		//HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 		printf("trail:%u %u %u %u\n",ocr[0],ocr[1],ocr[2],ocr[3]);
+		uint8_t spi_rx_clear = 0x0;
+		while(spi_rx_clear!=0xFF){
+			HAL_SPI_TransmitReceive(&hspi2, &tx_high, &spi_rx_clear , 1, 50);
+		}
 }
 
 
@@ -222,7 +248,14 @@ int main(void)
 
 
     //init seq
+	for(int ii = 0; ii<2; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	}
 	SD_CS_HIGH();
+
+	for(int ii = 0; ii<2; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	}
 	HAL_Delay(50); //delay at least 1 ms
 
 	  //only need 72, do a bunch more
@@ -233,14 +266,59 @@ int main(void)
 	uint8_t R1_resp = 0;
 	uint8_t ocr[4] = {0};
 
+	for(int ii = 0; ii<2; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	}
 	SD_CS_LOW();
+	for(int ii = 0; ii<2; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	}
+
+	/*
+	R1_resp = send_SD_cmd(CMD58,0x00000000);
+    get_OCR(ocr);
+	R1_resp = send_SD_cmd(CMD58,0x00000000);
+    get_OCR(ocr);
+	R1_resp = send_SD_cmd(CMD58,0x00000000);
+
+	get_OCR(ocr);
+    printf("OCR status:\n");
+    printf("\tCCS(0=bytes,1=blocks):%u\n", (ocr[3]>>6)&0x01 );
+    if(ocr[2]==0x00){
+    	printf("Error: No voltage range specified\n");
+    }
+    else{
+    	uint8_t min_voltage = fixedPointLog2(ocr[2] & (~ocr[2] + 1));
+    	uint8_t max_voltage = fixedPointLog2(ocr[2]);
+    	printf("\tmin,max:%u %u\n",min_voltage,max_voltage);
+
+    }
+	*/
+
+
 	R1_resp = send_SD_cmd(CMD0,0);
 
 	uint8_t SD_valid = 0;
 
 	if(R1_resp == 0x01){
+
+    	for(int ii = 0; ii<2; ii++){
+    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+    	}
+    	SD_CS_HIGH();
+    	for(int ii = 0; ii<2; ii++){
+    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+    	}
+    	for(int ii = 0; ii<2; ii++){
+    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+    	}
+    	SD_CS_LOW();
+    	for(int ii = 0; ii<2; ii++){
+    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+    	}
 		R1_resp = send_SD_cmd(CMD8,0x01AA);
 	    get_OCR(ocr);
+
 
 	    if( (R1_resp!=0x01)){ //if error or no response, SD1 or MMC
 	    	printf("SD 1.0 or MMC\n");
@@ -249,14 +327,134 @@ int main(void)
 	    else if( (ocr[2] == 0x01)&&(ocr[3] == 0xAA)  ){ //SD v2
 	    	printf("SD 2.0+\n");
 
-	    	for(int ii=0; ii<100; ii++){
-	    		R1_resp = send_SD_cmd(ACMD41,0x40000000);
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	SD_CS_HIGH();
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	SD_CS_LOW();
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
 
+
+	    	R1_resp = send_SD_cmd(CMD58,0x00000000);
+	    	get_OCR(ocr);
+	    	printf("Voltage supported:%u\n",ocr[1]&0x38==0x38);
+
+
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	SD_CS_HIGH();
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	SD_CS_LOW();
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+
+
+
+
+	    	for(int ii=0; ii<2000; ii++){ //replace this with a proper timed loop
+
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+		    	SD_CS_HIGH();
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+		    	SD_CS_LOW();
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+
+
+//	    		R1_resp = send_SD_cmd(ACMD41,0x40000000);
+	    		R1_resp = send_SD_cmd(CMD55,0x40FF8000);
+
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+		    	SD_CS_HIGH();
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+		    	SD_CS_LOW();
+		    	for(int ii = 0; ii<2; ii++){
+		    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+		    	}
+
+
+//	    		R1_resp = send_SD_cmd(ACMD41,0x40000000);
+	    		R1_resp = send_SD_cmd(ACMD41,0x40FF8000);
+
+
+	    		printf("returned\n");
 	    		if(R1_resp==0x00){
 	    			break;
+
 	    		}
 	    	}
-	    	printf("exited in this state:%u\n",R1_resp);
+
+
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	SD_CS_HIGH();
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+	    	SD_CS_LOW();
+	    	for(int ii = 0; ii<2; ii++){
+	    		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	    	}
+
+
+	    	R1_resp = send_SD_cmd(CMD58,0x00000000);
+	    	get_OCR(ocr);
+
+    	    printf("OCR status:\n");
+    	    printf("\tCCS(0=bytes,1=blocks):%u\n", (ocr[3]>>6)&0x01 );
+    	    if(ocr[2]==0x00){
+    	    	printf("Error: No voltage range specified\n");
+    	    }
+
+	    	R1_resp = send_SD_cmd(CMD58,0x00000000);
+	    	get_OCR(ocr);
+
+    	    printf("OCR status:\n");
+    	    printf("\tCCS(0=bytes,1=blocks):%u\n", (ocr[3]>>6)&0x01 );
+    	    if(ocr[2]==0x00){
+    	    	printf("Error: No voltage range specified\n");
+    	    }
+
+    	    else{
+    	    	uint8_t min_voltage = fixedPointLog2(ocr[2] & (~ocr[2] + 1));
+    	    	uint8_t max_voltage = fixedPointLog2(ocr[2]);
+    	    	printf("\tmin,max:%u %u\n",min_voltage,max_voltage);
+
+    	    }
 	    }
 	    else{
 			printf("error, CMD8 response:%u\n",R1_resp);
@@ -268,9 +466,17 @@ int main(void)
 		printf("error, CMD0 response:%u\n",R1_resp);
 	}
 
+	R1_resp = send_SD_cmd(CMD8,0x01AA);
+    get_OCR(ocr);
 
+
+	for(int ii = 0; ii<2; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	}
 	SD_CS_HIGH();
-
+	for(int ii = 0; ii<2; ii++){
+		HAL_SPI_Transmit(&hspi2, &spi_tx , 1, 0);
+	}
 //	sprintf(MSG, "resp:%u\n",cmd_resp[0]);
 //	HAL_UART_Transmit(&huart2, MSG, sizeof(MSG), 100);
 
@@ -510,6 +716,16 @@ uint8_t getCRC(uint8_t message[], int length)
   return CRC_val;
 
 }
+
+uint8_t fixedPointLog2(uint8_t val){
+	uint8_t r = 0;
+	while (val >>= 1) // unroll for more speed...
+	{
+	  r++;
+	}
+	return r;
+}
+
 
 
 /* USER CODE END 4 */
